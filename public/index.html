@@ -1,41 +1,72 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visor Médico Nilmo</title>
+    <title>Nilmo DICOM Viewer</title>
     <link rel="stylesheet" href="styles.css">
     
-    <script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cornerstone-math@0.1.9/dist/cornerstoneMath.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cornerstone-tools@6.0.8/dist/cornerstoneTools.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.13/dist/dicomParser.min.js"></script>
+    <!-- Cornerstone Core -->
+    <script src="https://unpkg.com/cornerstone-core@2.6.1/dist/cornerstone.js"></script>
+    <script src="https://unpkg.com/cornerstone-math@0.1.9/dist/cornerstoneMath.js"></script>
+    <!-- Cornerstone Tools -->
+    <script src="https://unpkg.com/cornerstone-tools@6.0.8/dist/cornerstoneTools.js"></script>
+    <!-- DICOM Parser & WADO Image Loader -->
+    <script src="https://unpkg.com/dicom-parser@1.8.13/dist/dicomParser.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.1.5/dist/cornerstoneWADOImageLoader.min.js"></script>
 </head>
 <body class="dark-theme">
     <div class="app-container">
+        <!-- Sidebar for Series Navigation -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h2>Estudios Nilmo</h2>
-                <p style="font-size: 0.8rem; color: gray;">Estado: <span id="status">Conectando...</span></p>
+                <h2>Extracted Studies</h2>
             </div>
             <div class="series-list" id="series-list">
-                <div class="loading-text">Cargando estudios...</div>
+                <div class="loading-text">Loading from Drive...</div>
             </div>
         </aside>
 
+        <!-- Main Workspace -->
         <main class="workspace">
+            <!-- Toolbar -->
             <header class="toolbar">
-                <button class="tool-btn active" data-tool="Wwwc">Contraste</button>
-                <button class="tool-btn" data-tool="Zoom">Zoom</button>
-                <button class="tool-btn" data-tool="Pan">Mover</button>
-                <button class="tool-btn" data-tool="Length">Regla</button>
+                <button class="tool-btn active" data-tool="Wwwc">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 0 0 20Z"></path></svg>
+                    Contrast (W/L)
+                </button>
+                <button class="tool-btn" data-tool="Zoom">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                    Zoom
+                </button>
+                <button class="tool-btn" data-tool="Pan">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="2" x2="12" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><polyline points="8 6 12 2 16 6"></polyline><polyline points="8 18 12 22 16 18"></polyline><polyline points="6 8 2 12 6 16"></polyline><polyline points="18 8 22 12 18 16"></polyline></svg>
+                    Pan
+                </button>
+                <button class="tool-btn" data-tool="Length">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 20h9"></path><path d="M16.5 16.5L21 21"></path><path d="M3 21l14.5-14.5a2.121 2.121 0 0 0-3-3L3 18v3h3z"></path></svg>
+                    Measure
+                </button>
+                
+                <div class="stack-controls">
+                    <span id="image-info">Image: 0 / 0</span>
+                    <button class="icon-btn" id="prev-btn" title="Previous Image">&lt;</button>
+                    <button class="icon-btn" id="next-btn" title="Next Image">&gt;</button>
+                </div>
             </header>
+
+            <!-- Viewport container -->
             <div class="viewport-wrapper">
-                <div id="dicom-viewport"></div>
+                <div id="dicom-viewport" class="viewport" oncontextmenu="return false"></div>
+                <!-- Overlays -->
+                <div class="overlay bottom-right" id="window-level-overlay">WL: 0 / WW: 0</div>
+                <div class="overlay bottom-left" id="zoom-overlay">Zoom: 1.0x</div>
             </div>
         </main>
     </div>
+
     <script src="app.js"></script>
 </body>
 </html>
+
+
