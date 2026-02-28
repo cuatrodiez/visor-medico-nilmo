@@ -17,20 +17,29 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h2>Estudios Nilmo</h2>
-                <p style="font-size: 0.8rem; color: gray;">Estado: <span id="status">Conectando...</span></p>
+                <p style="font-size: 0.8rem; color: gray;">Estado: <span id="status">Iniciando...</span></p>
             </div>
             <div class="series-list" id="series-list">
-                </div>
+                <div class="loading-text">Cargando estudios de la nube...</div>
+            </div>
         </aside>
+
         <main class="workspace">
             <header class="toolbar">
                 <button class="tool-btn active" data-tool="Wwwc">Contraste</button>
                 <button class="tool-btn" data-tool="Zoom">Zoom</button>
                 <button class="tool-btn" data-tool="Pan">Mover</button>
-                <button class="tool-btn" data-tool="Length">Medir</button>
+                <button class="tool-btn" data-tool="Length">Regla</button>
+                <div class="stack-controls">
+                    <span id="image-info">Img: 0 / 0</span>
+                    <button class="icon-btn" id="prev-btn">&lt;</button>
+                    <button class="icon-btn" id="next-btn">&gt;</button>
+                </div>
             </header>
             <div class="viewport-wrapper">
                 <div id="dicom-viewport"></div>
+                <div class="overlay bottom-right" id="window-level-overlay">WL: 0 / WW: 0</div>
+                <div class="overlay bottom-left" id="zoom-overlay">Zoom: 1.0x</div>
             </div>
         </main>
     </div>
