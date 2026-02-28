@@ -20,10 +20,11 @@
                 <p style="font-size: 0.8rem; color: gray;">Estado: <span id="status">Conectando...</span></p>
             </div>
             <div class="series-list" id="series-list">
-                </div>
+                <div class="loading-text">Cargando estudios...</div>
+            </div>
         </aside>
 
-        <main class="main-content">
+        <main class="workspace">
             <header class="toolbar">
                 <button class="tool-btn active" data-tool="Wwwc">Contrast</button>
                 <button class="tool-btn" data-tool="Zoom">Zoom</button>
@@ -31,16 +32,18 @@
                 <button class="tool-btn" data-tool="Length">Regla</button>
                 <div class="stack-controls">
                     <span id="image-info">Img: 0 / 0</span>
+                    <button class="icon-btn" id="prev-btn">&lt;</button>
+                    <button class="icon-btn" id="next-btn">&gt;</button>
                 </div>
             </header>
             <div class="viewport-wrapper">
-                <div id="dicom-viewport"></div>
+                <div id="dicom-viewport" class="viewport" oncontextmenu="return false"></div>
+                <div class="overlay bottom-right" id="window-level-overlay">WL: 0 / WW: 0</div>
+                <div class="overlay bottom-left" id="zoom-overlay">Zoom: 1.0x</div>
             </div>
         </main>
     </div>
     <script src="app.js"></script>
-</body>
-</html>
 </body>
 </html>
 
