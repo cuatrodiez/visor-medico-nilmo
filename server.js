@@ -8,20 +8,19 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 app.use(cors());
-// IMPORTANTE: Asegura que busca en la carpeta 'public'
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Configuración segura de Google Drive
+// Configuración de Google Drive
 const drive = google.drive({
     version: 'v3',
     auth: process.env.GOOGLE_API_KEY
 });
 
-// Función Inteligente: Busca imágenes recursivamente
+// Función Recursiva: Encuentra imágenes donde sea que estén
 async function findDicomFiles(folderId, folderName) {
     let results = [];
     try {
-        console.log(`🔎 Escaneando carpeta: ${folderName}`);
+        console.log(`🔎 Escaneando: ${folderName}`);
         
         const res = await drive.files.list({
             q: `'${folderId}' in parents and trashed = false`,
@@ -53,7 +52,7 @@ async function findDicomFiles(folderId, folderName) {
             results = results.concat(subResults);
         }
     } catch (error) {
-        console.error(`⚠️ Error en ${folderName}:`, error.message);
+        console.error(`⚠️ Error en carpeta ${folderName}:`, error.message);
     }
     return results;
 }
@@ -79,11 +78,9 @@ app.get('/api/download/:fileId', async (req, res) => {
         
         result.data.pipe(res);
     } catch (error) {
-        res.status(500).send("Error descargando archivo");
+        res.status(500).send("Error descarga");
     }
 });
 
-// Ruta para probar si el servidor está vivo
-app.get('/health', (req, res) => res.send('OK - Servidor Funcionando'));
-
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor listo en puerto ${PORT}`));
+
