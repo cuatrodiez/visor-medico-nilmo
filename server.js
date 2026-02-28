@@ -1,93 +1,104 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const { google } = require('googleapis');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Configuración Google Drive
+// === DATOS DE CONEXIÓN EXACTOS ===
+const TARGET_FOLDER_ID = "1IG0pnmWv4lVTMlyOznP5dQOB2xQboxDW";
+const GOOGLE_API_KEY = "AIzaSyCAfrixHasdfddUj3GEhZ20gsYDGKKHhVA";
+
+// Inicializando Cliente de Google Drive directamente con API_KEY
 const drive = google.drive({
     version: 'v3',
-    auth: process.env.GOOGLE_API_KEY
+    auth: GOOGLE_API_KEY
 });
 
-// 🔍 FUNCIÓN BUSCADORA INTELIGENTE (Recursiva)
-async function findDicomFiles(folderId, folderName) {
-    let results = [];
+// === FUNCIÓN RECURSIVA PARA ENCONTRAR TODOS LOS ARCHIVOS ===
+// Entrará en "CD1", "CD2", y subcarpetas infinitamente si existen
+async function findDicomFiles(folderId) {
+    let files = [];
     try {
-        console.log(`🔎 Buscando dentro de: ${folderName}`);
-        
-        // Pedimos archivos Y carpetas, soportando unidades compartidas
+        // En drive.files.list están de forma obligatoria los supportsAllDrives
         const res = await drive.files.list({
             q: `'${folderId}' in parents and trashed = false`,
             fields: 'files(id, name, mimeType)',
-            pageSize: 1000,
-            supportsAllDrives: true,
-            includeItemsFromAllDrives: true
+            supportsAllDrives: true,                 // OBLIGATORIO
+            includeItemsFromAllDrives: true,          // OBLIGATORIO
+            pageSize: 1000
         });
 
-        const files = res.data.files || [];
-        
-        // Separamos carpetas de archivos
-        const subFolders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
-        const dicomFiles = files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
+        const items = res.data.files;
+        if (!items || items.length === 0) return files;
 
-        // Si encontramos imágenes AQUÍ, las guardamos
-        if (dicomFiles.length > 0) {
-            results.push({
-                id: folderId,
-                name: folderName, 
-                series: [{
-                    id: folderId,
-                    name: 'Imágenes',
-                    fileCount: dicomFiles.length,
-                    files: dicomFiles.map(f => ({ id: f.id, name: f.name }))
-                }]
-            });
+        for (const item of items) {
+            if (item.mimeType === 'application/vnd.google-apps.folder') {
+                // Es una subcarpeta: Llamada recursiva
+                const subFolderFiles = await findDicomFiles(item.id);
+                files = files.concat(subFolderFiles);
+            } else {
+                // Es un archivo: Lo guardamos
+                files.push(item);
+            }
         }
-
-        // Entramos a buscar en las subcarpetas (ej: CD1)
-        for (const folder of subFolders) {
-            const subResults = await findDicomFiles(folder.id, folder.name);
-            results = results.concat(subResults);
-        }
-
     } catch (error) {
-        console.error(`⚠️ Error leyendo carpeta ${folderName}:`, error.message);
+        console.error(`Error buscando en la subcarpeta ${folderId}:`, error.message);
     }
-    return results;
+    return files;
 }
 
-// API PRINCIPAL
-app.get('/api/studies', async (req, res) => {
+// Endpoint para traer toda la jerarquía al Frontend
+app.get('/api/dicom-files', async (req, res) => {
     try {
-        const rootId = process.env.TARGET_FOLDER_ID;
-        // Iniciamos la búsqueda
-        const studies = await findDicomFiles(rootId, "Raíz");
-        res.json(studies);
+        console.log('Iniciando rastreo recursivo en:', TARGET_FOLDER_ID);
+        const allFiles = await findDicomFiles(TARGET_FOLDER_ID);
+        res.json({ success: true, files: allFiles });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Error in /api/dicom-files:', error);
+        res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 });
 
-// API DESCARGA
-app.get('/api/download/:fileId', async (req, res) => {
+// Endpoint proxy para descargar binariamente y evitar CORS
+app.get('/api/dicom-file/:fileId', async (req, res) => {
     try {
-        const result = await drive.files.get({
-            fileId: req.params.fileId,
+        const fileId = req.params.fileId;
+        
+        // En drive.files.get están de forma obligatoria los supportsAllDrives
+        const response = await drive.files.get({
+            fileId: fileId,
             alt: 'media',
-            supportsAllDrives: true
+            supportsAllDrives: true,                 // OBLIGATORIO
+            includeItemsFromAllDrives: true          // OBLIGATORIO
         }, { responseType: 'stream' });
-        result.data.pipe(res);
+        
+        // Pipe directo hacia el cliente con cabeceras CORS
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        response.data
+            .on('end', () => {})
+            .on('error', err => {
+                console.error('Error descargando desde Google Drive:', err);
+                res.status(500).send('Error downloading file');
+            })
+            .pipe(res);
+            
     } catch (error) {
-        res.status(500).send("Error descarga");
+        console.error(`Error en proxy para fileId ${req.params.fileId}:`, error.message);
+        res.status(500).send('Error haciendo proxy del archivo DICOM.');
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor listo en puerto ${PORT}`));
+// SPA fallback
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, () => console.log(`🚀 Visor médico corriendo en el puerto ${PORT}`));
+
 
