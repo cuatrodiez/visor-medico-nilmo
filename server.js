@@ -2,187 +2,100 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { google } = require('googleapis'); // Usaremos la librería oficial, es más robusta
 
 const app = express();
-
-// ✅ FIX #1: Leer PORT de Railway (Railway asigna el puerto dinámicamente)
 const PORT = process.env.PORT || 8080;
-const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-const TARGET_FOLDER_ID = process.env.TARGET_FOLDER_ID;
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ✅ FIX #2: Usar fetch directo a la API REST de Google Drive con API Key
-// (La librería googleapis con auth por API Key tiene bugs en Railway)
-const DRIVE_API = 'https://www.googleapis.com/drive/v3';
+// Configuración de Google Drive
+const drive = google.drive({
+    version: 'v3',
+    auth: process.env.GOOGLE_API_KEY // Usamos tu API Key
+});
 
-async function getFilesInFolder(folderId) {
-    let allFiles = [];
-    let pageToken = null;
+// Función recursiva para buscar archivos DICOM en todas las subcarpetas
+async function findDicomFiles(folderId, folderName) {
+    let results = [];
+    try {
+        // 1. Buscar archivos y carpetas en este nivel
+        const res = await drive.files.list({
+            q: `'${folderId}' in parents and trashed = false`,
+            fields: 'files(id, name, mimeType)',
+            pageSize: 1000
+        });
 
-    do {
-        let url = `${DRIVE_API}/files?q='${folderId}'+in+parents+and+trashed=false&fields=nextPageToken,files(id,name,mimeType)&key=${GOOGLE_API_KEY}&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=1000`;
-        if (pageToken) url += `&pageToken=${pageToken}`;
+        const files = res.data.files;
+        if (!files || files.length === 0) return [];
 
-        const res = await fetch(url);
+        // Separar carpetas de archivos
+        const subFolders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
+        const dicomFiles = files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
 
-        if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(`Google Drive API error: ${res.status} - ${errText}`);
+        // Si hay archivos aquí, crear una "Serie"
+        if (dicomFiles.length > 0) {
+            results.push({
+                id: folderId,
+                name: folderName, // Nombre de la carpeta actual (ej: CD1)
+                series: [{
+                    id: folderId,
+                    name: 'Imágenes',
+                    fileCount: dicomFiles.length,
+                    files: dicomFiles.map(f => ({ id: f.id, name: f.name }))
+                }]
+            });
         }
 
-        const data = await res.json();
-
-        if (data.files) {
-            allFiles = allFiles.concat(data.files);
+        // 2. Buscar recursivamente en subcarpetas (ej: CD1/Imágenes)
+        for (const folder of subFolders) {
+            const subResults = await findDicomFiles(folder.id, folder.name);
+            results = results.concat(subResults);
         }
-        pageToken = data.nextPageToken || null;
-    } while (pageToken);
 
-    return allFiles;
+    } catch (error) {
+        console.error(`Error leyendo carpeta ${folderName}:`, error.message);
+    }
+    return results;
 }
 
-// ✅ API: Listar estudios y series
+// API: Listar estudios (Búsqueda profunda)
 app.get('/api/studies', async (req, res) => {
+    console.log("📥 Petición recibida: Escaneando Drive...");
     try {
-        if (!TARGET_FOLDER_ID) throw new Error("TARGET_FOLDER_ID no configurado en Railway Variables");
-        if (!GOOGLE_API_KEY) throw new Error("GOOGLE_API_KEY no configurada en Railway Variables");
+        const rootFolderId = process.env.TARGET_FOLDER_ID;
+        if (!rootFolderId) throw new Error("Falta TARGET_FOLDER_ID");
 
-        const mainFiles = await getFilesInFolder(TARGET_FOLDER_ID);
-        let result = [];
-        const studyFolders = mainFiles.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
-
-        if (studyFolders.length > 0) {
-            for (const studyFolder of studyFolders) {
-                const studyData = {
-                    id: studyFolder.id,
-                    name: studyFolder.name,
-                    series: []
-                };
-
-                const studyContents = await getFilesInFolder(studyFolder.id);
-                const seriesFolders = studyContents.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
-
-                if (seriesFolders.length > 0) {
-                    for (const s of seriesFolders) {
-                        const seriesFiles = await getFilesInFolder(s.id);
-                        const dicomFiles = seriesFiles.filter(f =>
-                            f.mimeType !== 'application/vnd.google-apps.folder' &&
-                            f.name !== 'DICOMDIR' &&
-                            !f.name.startsWith('.')
-                        );
-                        if (dicomFiles.length > 0) {
-                            studyData.series.push({
-                                id: s.id,
-                                name: s.name,
-                                fileCount: dicomFiles.length,
-                                files: dicomFiles
-                                    .map(df => ({ id: df.id, name: df.name }))
-                                    .sort((a, b) => a.name.localeCompare(b.name))
-                            });
-                        }
-                    }
-                } else {
-                    // La carpeta de estudio contiene archivos directamente (es la serie)
-                    const dicomFiles = studyContents.filter(f =>
-                        f.mimeType !== 'application/vnd.google-apps.folder' &&
-                        f.name !== 'DICOMDIR' &&
-                        !f.name.startsWith('.')
-                    );
-                    if (dicomFiles.length > 0) {
-                        studyData.series.push({
-                            id: studyFolder.id,
-                            name: 'Imágenes',
-                            fileCount: dicomFiles.length,
-                            files: dicomFiles
-                                .map(df => ({ id: df.id, name: df.name }))
-                                .sort((a, b) => a.name.localeCompare(b.name))
-                        });
-                    }
-                }
-
-                if (studyData.series.length > 0) {
-                    result.push(studyData);
-                }
-            }
-        } else {
-            // La carpeta raíz tiene archivos directamente
-            const dicomFiles = mainFiles.filter(f =>
-                f.mimeType !== 'application/vnd.google-apps.folder' &&
-                f.name !== 'DICOMDIR' &&
-                !f.name.startsWith('.')
-            );
-            if (dicomFiles.length > 0) {
-                result.push({
-                    id: TARGET_FOLDER_ID,
-                    name: 'Estudio Principal',
-                    series: [{
-                        id: TARGET_FOLDER_ID,
-                        name: 'Serie Principal',
-                        fileCount: dicomFiles.length,
-                        files: dicomFiles
-                            .map(df => ({ id: df.id, name: df.name }))
-                            .sort((a, b) => a.name.localeCompare(b.name))
-                    }]
-                });
-            }
-        }
-
-        res.json(result);
+        // Iniciar búsqueda recursiva desde la raíz
+        const allStudies = await findDicomFiles(rootFolderId, "Raíz");
+        
+        console.log(`✅ Encontrados ${allStudies.length} grupos de imágenes.`);
+        res.json(allStudies);
     } catch (error) {
-        console.error("Error fetching studies:", error.message);
+        console.error("Error fatal:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// ✅ API: Proxy para descargar/streamear archivos DICOM
+// API: Descargar archivo (Igual que antes, funciona bien)
 app.get('/api/download/:fileId', async (req, res) => {
     try {
         const fileId = req.params.fileId;
-        const url = `${DRIVE_API}/files/${fileId}?alt=media&key=${GOOGLE_API_KEY}`;
+        const result = await drive.files.get({
+            fileId: fileId,
+            alt: 'media'
+        }, { responseType: 'stream' });
 
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            throw new Error(`Error descargando archivo: ${response.status}`);
-        }
-
-        res.setHeader('Content-Type', 'application/dicom');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-
-        // Stream directo sin cargar en memoria
-        const reader = response.body.getReader();
-        const pump = async () => {
-            const { done, value } = await reader.read();
-            if (done) {
-                res.end();
-                return;
-            }
-            res.write(Buffer.from(value));
-            return pump();
-        };
-        await pump();
-
+        result.data
+            .on('end', () => res.end())
+            .on('error', err => res.status(500).send(err))
+            .pipe(res);
     } catch (error) {
-        console.error("Error streaming file:", error.message);
-        res.status(500).send("Error al descargar el archivo DICOM");
+        res.status(500).send("Error descargando archivo");
     }
 });
 
-// ✅ Health check para Railway
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        port: PORT,
-        targetFolder: TARGET_FOLDER_ID ? '✅ configurado' : '❌ falta TARGET_FOLDER_ID',
-        apiKey: GOOGLE_API_KEY ? '✅ configurada' : '❌ falta GOOGLE_API_KEY'
-    });
-});
-
-// ✅ FIX PRINCIPAL: '0.0.0.0' permite que Railway enrute tráfico externo al proceso
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Servidor DICOM corriendo en puerto ${PORT}`);
-    console.log(`📁 TARGET_FOLDER_ID: ${TARGET_FOLDER_ID || '❌ NO CONFIGURADO'}`);
-    console.log(`🔑 GOOGLE_API_KEY: ${GOOGLE_API_KEY ? '✅ OK' : '❌ NO CONFIGURADA'}`);
+    console.log(`✅ Servidor listo en puerto ${PORT}`);
 });
