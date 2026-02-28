@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,34 +16,25 @@
     <div class="app-container">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h2>Estudios Nilmo</h2>
-                <p style="font-size: 0.8rem; color: gray;">Estado: <span id="status">Conectando...</span></p>
+                <h2>Estudios Disponibles</h2>
+                <p id="status" style="font-size: 0.8rem; color: #aaa;">Conectando...</p>
             </div>
             <div class="series-list" id="series-list">
-                <div class="loading-text">Cargando estudios...</div>
-            </div>
+                </div>
         </aside>
 
         <main class="workspace">
             <header class="toolbar">
-                <button class="tool-btn active" data-tool="Wwwc">Contrast</button>
+                <button class="tool-btn active" data-tool="Wwwc">Contraste</button>
                 <button class="tool-btn" data-tool="Zoom">Zoom</button>
-                <button class="tool-btn" data-tool="Pan">Pan</button>
-                <button class="tool-btn" data-tool="Length">Regla</button>
-                <div class="stack-controls">
-                    <span id="image-info">Img: 0 / 0</span>
-                    <button class="icon-btn" id="prev-btn">&lt;</button>
-                    <button class="icon-btn" id="next-btn">&gt;</button>
-                </div>
+                <button class="tool-btn" data-tool="Pan">Mover</button>
+                <button class="tool-btn" data-tool="Length">Medir</button>
             </header>
             <div class="viewport-wrapper">
-                <div id="dicom-viewport" class="viewport" oncontextmenu="return false"></div>
-                <div class="overlay bottom-right" id="window-level-overlay">WL: 0 / WW: 0</div>
-                <div class="overlay bottom-left" id="zoom-overlay">Zoom: 1.0x</div>
+                <div id="dicom-viewport"></div>
             </div>
         </main>
     </div>
     <script src="app.js"></script>
 </body>
 </html>
-
