@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nilmo DICOM Viewer</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            color: #fff;
+            overflow: hidden;
+            font-family: sans-serif;
+            user-select: none;
+        }
+        #dicomImage {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            /* Cursor adjustments could be handled by cornerstone optionally, let's keep it visible */
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px #000, -1px -1px 2px #000;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            font-size: 24px;
+            text-align: center;
+        }
+    </style>
+
+    <!-- dicomParser -->
+    <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
+    
+    <!-- cornerstone-core -->
+    <script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+    
+    <!-- cornerstone-math -->
+    <script src="https://cdn.jsdelivr.net/npm/cornerstone-math@0.1.10/dist/cornerstoneMath.min.js"></script>
+    
+    <!-- cornerstone-tools -->
+    <script src="https://cdn.jsdelivr.net/npm/cornerstone-tools@6.0.8/dist/cornerstoneTools.min.js"></script>
+    
+    <!-- cornerstone-wado-image-loader -->
+    <script src="https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoader.bundle.min.js"></script>
+</head>
+<body>
+    <!-- Fullscreen black background medical theme -->
+    <div id="loading" class="loading">Sincronizando estudios de Nilmo con Google Drive...<br><span style="font-size:16px; color:#aaa; margin-top:10px; display:inline-block;">Por favor, espera unos segundos.</span></div>
+    
+    <div id="ui-overlay" style="display:none;">
+        <div style="font-size: 20px; font-weight: bold; margin-bottom: 5px;">Nilmo Viewer</div>
+        <div id="image-info" style="font-size: 16px; color: #00ffcc;">Imagen: 0 / 0</div>
+        <div style="font-size: 13px; color: #ccc; margin-top: 10px;">
+            Rueda: Navegar Stack<br>
+            Click Izquierdo: Brillo/Contraste<br>
+            Click Derecho: Zoom
+        </div>
+    </div>
+    
+    <div id="dicomImage" oncontextmenu="return false;"></div>
+
+    <script>
+        // Init cornerstone tools
+        cornerstoneTools.external.cornerstone = cornerstone;
+        cornerstoneTools.external.cornerstoneMath = cornerstoneMath;
+        cornerstoneTools.init({
+            mouseEnabled: true,
+            touchEnabled: false,
+            globalToolSyncEnabled: true,
+            showSVGCursors: false
+        });
+
+        // Configure cornerstoneWADOImageLoader
+        cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+        cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
+        
+        // Setup Web Workers with a dynamically created worker script to bypass CORS
+        const workerScript = `
+            importScripts('https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoaderWebWorker.min.js');
+        `;
+        const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
+
+        cornerstoneWADOImageLoader.webWorkerManager.initialize({
+            maxWebWorkers: navigator.hardwareConcurrency || 1,
+            startWebWorkersOnDemand: true,
+            webWorkerTaskPaths: [workerUrl],
+            taskConfiguration: {
+                decodeTask: {
+                    loadCodecsOnStartup: true,
+                    initializeCodecsOnStartup: false,
+                    codecsPath: 'https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoaderCodecs.min.js',
+                    usePDFJS: false,
+                    strict: false,
+                }
+            }
+        });
+
+        const element = document.getElementById('dicomImage');
+        cornerstone.enable(element);
+
+        // Fetch the file list from our proxy backend
+        fetch('/api/dicom-list')
+            .then(res => res.json())
+            .then(fileIds => {
+                if (!fileIds || fileIds.length === 0) {
+                    document.getElementById('loading').innerHTML = 'No se encontraron imágenes DICOM en la carpeta especificada.';
+                    return;
+                }
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('ui-overlay').style.display = 'block';
+                
+                // wadouri scheme passes the URL to cornerstoneWADOImageLoader
+                const imageIds = fileIds.map(id => 'wadouri:' + window.location.origin + '/api/view/' + id);
+
+                const stack = {
+                    currentImageIdIndex: 0,
+                    imageIds: imageIds
+                };
+
+                // Load first image
+                cornerstone.loadAndCacheImage(imageIds[0]).then(function(image) {
+                    cornerstone.displayImage(element, image);
+                    
+                    // Add Stack State
+                    cornerstoneTools.addStackStateManager(element, ['stack']);
+                    cornerstoneTools.addToolState(element, 'stack', stack);
+
+                    // Add Tools
+                    const WwwcTool = cornerstoneTools.WwwcTool;
+                    const ZoomTool = cornerstoneTools.ZoomTool;
+                    const StackScrollMouseWheelTool = cornerstoneTools.StackScrollMouseWheelTool;
+
+                    cornerstoneTools.addTool(WwwcTool);
+                    cornerstoneTools.addTool(ZoomTool);
+                    cornerstoneTools.addTool(StackScrollMouseWheelTool);
+
+                    // Set tool bindings exactly as requested
+                    cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });  // Left Click
+                    cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });  // Right Click
+                    cornerstoneTools.setToolActive('StackScrollMouseWheel', { });    // Mouse Wheel
+
+                    updateImageInfo(1, imageIds.length);
+
+                    // Element event handlers for stack scroll updates
+                    element.addEventListener('cornerstoneimagerendered', function(e) {
+                         const toolState = cornerstoneTools.getToolState(element, 'stack');
+                         if (toolState && toolState.data && toolState.data.length > 0) {
+                             const currentStack = toolState.data[0];
+                             updateImageInfo(currentStack.currentImageIdIndex + 1, currentStack.imageIds.length);
+                         }
+                    });
+
+                }).catch(function(err) {
+                    console.error('Error cargando la primera imagen:', err);
+                    document.getElementById('loading').style.display = 'block';
+                    document.getElementById('loading').innerText = 'Error al cargar imagen inicial de DICOM.';
+                });
+
+            })
+            .catch(err => {
+                console.error('Error fetching /api/dicom-list:', err);
+                document.getElementById('loading').innerText = 'Error de conexión con el servidor (/api/dicom-list).';
+            });
+
+        function updateImageInfo(current, total) {
+            document.getElementById('image-info').innerText = 'Imagen: ' + current + ' / ' + total;
+        }
+        
+        // Handle window resize dynamically
+        window.addEventListener('resize', function() {
+            cornerstone.resize(element);
+        });
+    </script>
+</body>
+</html>
