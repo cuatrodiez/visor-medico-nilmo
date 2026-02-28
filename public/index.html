@@ -3,50 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visor DICOM - Sistema Médico</title>
-    <style>
-        body { margin: 0; background-color: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        #toolbar { padding: 12px; background-color: #1c1c1e; display: flex; gap: 15px; align-items: center; justify-content: center; border-bottom: 1px solid #333; }
-        #dicomWrapper { flex: 1; position: relative; width: 100%; height: 100%; }
-        #dicomImage { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
-        
-        button { background: #0A84FF; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; transition: 0.2s;}
-        button:disabled { background: #333; color: #777; cursor: not-allowed; }
-        button:hover:not(:disabled) { background: #0070ea; }
-        #imageCounter { font-size: 14px; font-weight: bold; font-variant-numeric: tabular-nums; width: 80px; text-align: center; }
-        
-        #loading { position: absolute; z-index: 10; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
-        .spinner { border: 4px solid rgba(255, 255, 255, 0.1); border-left-color: #0A84FF; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    </style>
-    
-    <!-- LIBRERÍAS SEGURAS POR JSDELIVR -->
+    <title>Visor DICOM - Nilmo</title>
+    <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-math@0.1.9/dist/cornerstoneMath.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-tools@6.0.8/dist/cornerstoneTools.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.13/dist/dicomParser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.1.5/dist/cornerstoneWADOImageLoader.min.js"></script>
 </head>
-<body>
-    <div id="toolbar">
-        <button id="prevBtn" disabled>◄ Anterior</button>
-        <div id="imageCounter">0 / 0</div>
-        <button id="nextBtn" disabled>Siguiente ►</button>
-        <button id="playBtn" disabled>▶ Auto-Play</button>
+<body class="dark-theme">
+    <div id="toolbar" class="toolbar">
+        <button id="prevBtn" class="tool-btn" disabled>Anterior</button>
+        <div id="imageCounter" class="stack-controls">0 / 0</div>
+        <button id="nextBtn" class="tool-btn" disabled>Siguiente</button>
+        <button id="playBtn" class="tool-btn" disabled>Auto-Play</button>
     </div>
-    
-    <div id="dicomWrapper">
-        <!-- Indicador de Carga -->
-        <div id="loading">
+    <div class="viewport-wrapper">
+        <div id="loading" class="loading-text">
             <div class="spinner"></div>
-            <span id="loadingText">Escaneando Drive recursivamente...</span>
+            <span id="loadingText">Escaneando estudios de Nilmo...</span>
         </div>
-        <!-- Contenedor Cornerstone -->
-        <div id="dicomImage" oncontextmenu="return false"></div>
+        <div id="dicomImage" class="viewport" oncontextmenu="return false"></div>
     </div>
-
     <script>
-        // 1. Configuración de Cornerstone + WADO Decoder
         cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
         cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
         cornerstoneWADOImageLoader.webWorkerManager.initialize({
@@ -55,104 +34,40 @@
             taskConfiguration: { decodeTask: { initializeCodecsOnStartup: false, usePDFJS: false } }
         });
 
-        // 2. Elementos del DOM
         let dicomFiles = [];
         let currentIndex = 0;
-        let isPlaying = false;
-        let playInterval;
+        const element = document.getElementById('dicomImage');
 
-        const dicomElement = document.getElementById('dicomImage');
-        const loadingDiv = document.getElementById('loading');
-        const loadingText = document.getElementById('loadingText');
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        const playBtn = document.getElementById('playBtn');
-        const imageCounter = document.getElementById('imageCounter');
-
-        // Activando Cornerstone
-        cornerstone.enable(dicomElement);
-        cornerstoneTools.external.cornerstone = cornerstone;
-        cornerstoneTools.external.cornerstoneMath = cornerstoneMath;
-        cornerstoneTools.init();
-        
-        // Tools básicos: Click Izquierdo (Brillo/Contraste), Centro (Mover), Derecho (Zoom)
-        cornerstoneTools.addTool(cornerstoneTools.WwwcTool);
-        cornerstoneTools.addTool(cornerstoneTools.PanTool);
-        cornerstoneTools.addTool(cornerstoneTools.ZoomTool);
-        cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });
-        cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });
-        cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 });
-
-        // 3. Petición recursiva al Backend y carga lógica
-        async function fetchDicomHierarchy() {
+        async function initVisor() {
+            cornerstone.enable(element);
             try {
                 const res = await fetch('/api/dicom-files');
                 const data = await res.json();
-                
                 if (data.success && data.files.length > 0) {
-                    dicomFiles = data.files.map(file => {
-                        // Creando URL a pasar a Wado Loader, llamando a nuestro proxy interno por file.id
-                        return `wadouri:${window.location.origin}/api/dicom-file/${file.id}`;
-                    });
-
-                    loadingDiv.style.display = 'none';
-                    prevBtn.disabled = false;
-                    nextBtn.disabled = false;
-                    playBtn.disabled = false;
-                    
-                    await loadAndDisplayImage(0);
-                } else {
-                    loadingText.innerText = 'No se encontraron archivos en las subcarpetas del Drive.';
-                    document.querySelector('.spinner').style.display = 'none';
+                    dicomFiles = data.files.map(f => `wadouri:${window.location.origin}/api/dicom-file/${f.id}`);
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('prevBtn').disabled = false;
+                    document.getElementById('nextBtn').disabled = false;
+                    document.getElementById('playBtn').disabled = false;
+                    renderImage(0);
                 }
             } catch (err) {
-                console.error(err);
-                loadingText.innerText = 'Error contactando con el backend.';
-                document.querySelector('.spinner').style.display = 'none';
+                document.getElementById('loadingText').innerText = "Error al conectar con el servidor.";
             }
         }
 
-        // 4. Mecanismo para pintar la imagen en pantalla
-        async function loadAndDisplayImage(index) {
+        async function renderImage(index) {
             if (index < 0 || index >= dicomFiles.length) return;
             currentIndex = index;
-            imageCounter.innerText = `${currentIndex + 1} / ${dicomFiles.length}`;
-            
-            try {
-                const imageId = dicomFiles[currentIndex];
-                const image = await cornerstone.loadAndCacheImage(imageId);
-                cornerstone.displayImage(dicomElement, image);
-            } catch (error) {
-                console.error("Error renderizando slide", error);
-            }
+            document.getElementById('imageCounter').innerText = `${currentIndex + 1} / ${dicomFiles.length}`;
+            const image = await cornerstone.loadAndCacheImage(dicomFiles[currentIndex]);
+            cornerstone.displayImage(element, image);
         }
 
-        // 5. Controles UI y Rueda de Ratón
-        prevBtn.addEventListener('click', () => loadAndDisplayImage(currentIndex - 1));
-        nextBtn.addEventListener('click', () => loadAndDisplayImage(currentIndex + 1));
-        dicomElement.addEventListener('wheel', (e) => {
-            if (e.deltaY < 0) loadAndDisplayImage(currentIndex - 1);
-            else loadAndDisplayImage(currentIndex + 1);
-        });
-
-        playBtn.addEventListener('click', () => {
-            if (isPlaying) {
-                clearInterval(playInterval);
-                playBtn.innerText = '▶ Auto-Play';
-            } else {
-                playBtn.innerText = '⏸ Pausar';
-                playInterval = setInterval(() => {
-                    if (currentIndex < dicomFiles.length - 1) loadAndDisplayImage(currentIndex + 1);
-                    else clearInterval(playInterval); // Frena al final
-                }, 120);
-            }
-            isPlaying = !isPlaying;
-        });
-
-        // Arranque
-        window.onload = fetchDicomHierarchy;
+        document.getElementById('nextBtn').onclick = () => renderImage(currentIndex + 1);
+        document.getElementById('prevBtn').onclick = () => renderImage(currentIndex - 1);
+        window.onload = initVisor;
     </script>
 </body>
 </html>
-
 
