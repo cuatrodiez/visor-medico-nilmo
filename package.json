@@ -1,7 +1,6 @@
 {
   "name": "visor-medico-nilmo",
   "version": "1.0.0",
-  "description": "Visor DICOM Cloud",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
