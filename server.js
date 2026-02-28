@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { google } = require('googleapis'); // Usaremos la librería oficial, es más robusta
+const { google } = require('googleapis');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -10,35 +10,34 @@ const PORT = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Configuración de Google Drive
+// Configuración robusta de Google Drive
 const drive = google.drive({
     version: 'v3',
-    auth: process.env.GOOGLE_API_KEY // Usamos tu API Key
+    auth: process.env.GOOGLE_API_KEY
 });
 
-// Función recursiva para buscar archivos DICOM en todas las subcarpetas
+// FUNCIÓN "BUSCADOR PROFUNDO" (La solución al problema)
+// Busca imágenes sin importar si están en CD1, en subcarpetas o sueltas.
 async function findDicomFiles(folderId, folderName) {
     let results = [];
     try {
-        // 1. Buscar archivos y carpetas en este nivel
         const res = await drive.files.list({
             q: `'${folderId}' in parents and trashed = false`,
             fields: 'files(id, name, mimeType)',
             pageSize: 1000
         });
 
-        const files = res.data.files;
-        if (!files || files.length === 0) return [];
-
-        // Separar carpetas de archivos
+        const files = res.data.files || [];
+        
+        // Separar lo que es carpeta de lo que es archivo
         const subFolders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
         const dicomFiles = files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
 
-        // Si hay archivos aquí, crear una "Serie"
+        // 1. Si encontramos archivos aquí, ¡los guardamos!
         if (dicomFiles.length > 0) {
             results.push({
                 id: folderId,
-                name: folderName, // Nombre de la carpeta actual (ej: CD1)
+                name: folderName, 
                 series: [{
                     id: folderId,
                     name: 'Imágenes',
@@ -48,54 +47,47 @@ async function findDicomFiles(folderId, folderName) {
             });
         }
 
-        // 2. Buscar recursivamente en subcarpetas (ej: CD1/Imágenes)
+        // 2. Si hay más carpetas, entramos a investigar (Recursividad)
         for (const folder of subFolders) {
-            const subResults = await findDicomFiles(folder.id, folder.name);
-            results = results.concat(subResults);
+            const deeperResults = await findDicomFiles(folder.id, folder.name);
+            results = results.concat(deeperResults);
         }
 
     } catch (error) {
-        console.error(`Error leyendo carpeta ${folderName}:`, error.message);
+        console.error(`Saltando carpeta ${folderName} por permisos o error.`);
     }
     return results;
 }
 
-// API: Listar estudios (Búsqueda profunda)
+// API PRINCIPAL
 app.get('/api/studies', async (req, res) => {
-    console.log("📥 Petición recibida: Escaneando Drive...");
+    console.log("📥 Iniciando escaneo profundo de Drive...");
     try {
-        const rootFolderId = process.env.TARGET_FOLDER_ID;
-        if (!rootFolderId) throw new Error("Falta TARGET_FOLDER_ID");
+        const rootId = process.env.TARGET_FOLDER_ID;
+        if (!rootId) throw new Error("Falta el ID de la carpeta");
 
-        // Iniciar búsqueda recursiva desde la raíz
-        const allStudies = await findDicomFiles(rootFolderId, "Raíz");
+        const studies = await findDicomFiles(rootId, "Raíz");
         
-        console.log(`✅ Encontrados ${allStudies.length} grupos de imágenes.`);
-        res.json(allStudies);
+        console.log(`✅ Encontradas ${studies.length} carpetas con imágenes.`);
+        res.json(studies);
     } catch (error) {
-        console.error("Error fatal:", error);
+        console.error("Error grave:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// API: Descargar archivo (Igual que antes, funciona bien)
+// API DESCARGA (Igual que antes, funciona bien)
 app.get('/api/download/:fileId', async (req, res) => {
     try {
-        const fileId = req.params.fileId;
         const result = await drive.files.get({
-            fileId: fileId,
+            fileId: req.params.fileId,
             alt: 'media'
         }, { responseType: 'stream' });
-
-        result.data
-            .on('end', () => res.end())
-            .on('error', err => res.status(500).send(err))
-            .pipe(res);
+        
+        result.data.pipe(res);
     } catch (error) {
-        res.status(500).send("Error descargando archivo");
+        res.status(500).send("Error de descarga");
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Servidor listo en puerto ${PORT}`);
-});
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor listo en puerto ${PORT}`));
