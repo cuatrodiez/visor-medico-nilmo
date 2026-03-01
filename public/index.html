@@ -138,11 +138,29 @@
             document.getElementById('loading').style.display = 'block';
             document.getElementById('loading').innerHTML = `Cargando <b>${seriesName}</b>...`;
 
-            // Reset cornerstone state for the element properly
+            // Reset cornerstone state for the element safely
+            let dicomContainer = document.getElementById('dicomImage');
             try {
-                cornerstone.disable(element);
-            } catch (e) { }
-            cornerstone.enable(element);
+                cornerstone.disable(dicomContainer);
+
+                // When overriding cornerstone, we need a fresh element to prevent internal state corruption
+                const newDicomImage = document.createElement('div');
+                newDicomImage.id = 'dicomImage';
+                newDicomImage.oncontextmenu = function () { return false; };
+
+                // Copy styles/properties
+                newDicomImage.style.width = '100%';
+                newDicomImage.style.height = '100%';
+                newDicomImage.style.position = 'absolute';
+                newDicomImage.style.top = '0';
+                newDicomImage.style.left = '0';
+
+                dicomContainer.parentNode.replaceChild(newDicomImage, dicomContainer);
+                dicomContainer = newDicomImage;
+            } catch (e) {
+                console.error("Cleanup error:", e);
+            }
+            cornerstone.enable(dicomContainer);
 
             const imageIds = fileIds.map(id => 'wadouri:' + window.location.origin + '/api/view/' + id);
 
@@ -153,10 +171,10 @@
 
             cornerstone.loadAndCacheImage(imageIds[0]).then(function (image) {
                 document.getElementById('loading').style.display = 'none';
-                cornerstone.displayImage(element, image);
+                cornerstone.displayImage(dicomContainer, image);
 
-                cornerstoneTools.addStackStateManager(element, ['stack']);
-                cornerstoneTools.addToolState(element, 'stack', currentStackData);
+                cornerstoneTools.addStackStateManager(dicomContainer, ['stack']);
+                cornerstoneTools.addToolState(dicomContainer, 'stack', currentStackData);
 
                 const WwwcTool = cornerstoneTools.WwwcTool;
                 const ZoomTool = cornerstoneTools.ZoomTool;
@@ -172,8 +190,8 @@
 
                 updateImageInfo(1, imageIds.length);
 
-                element.addEventListener('cornerstoneimagerendered', function () {
-                    const toolState = cornerstoneTools.getToolState(element, 'stack');
+                dicomContainer.addEventListener('cornerstoneimagerendered', function () {
+                    const toolState = cornerstoneTools.getToolState(dicomContainer, 'stack');
                     if (toolState && toolState.data && toolState.data.length > 0) {
                         const currentStack = toolState.data[0];
                         updateImageInfo(currentStack.currentImageIdIndex + 1, currentStack.imageIds.length);
