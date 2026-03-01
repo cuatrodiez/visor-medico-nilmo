@@ -10,6 +10,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 
+// Configuración de Google Drive (Extraído de tu versión original)
 const TARGET_FOLDER_ID = "1IG0pnmWv4lVTMlyOznP5dQOB2xQboxDW";
 const GOOGLE_API_KEY = "AIzaSyCAfrixHasdfddUj3GEhZ20gsYDGKKHhVA";
 
@@ -18,9 +19,13 @@ const drive = google.drive({
   auth: GOOGLE_API_KEY
 });
 
-// En memoria agrupado por nombre de carpeta
+// Cache en memoria
 let cachedDicomSeries = null;
+let isScanning = false;
 
+/**
+ * Función recursiva para mapear carpetas y archivos
+ */
 async function traverseFolders(folderId, currentPath) {
   const query = `"${folderId}" in parents and trashed=false`;
 
@@ -41,7 +46,7 @@ async function traverseFolders(folderId, currentPath) {
       } else {
         const nameLower = file.name.toLowerCase();
 
-        // Ignorar meta-archivos del visor quemado en CD
+        // Filtros de exclusión de archivos no médicos
         if (
           nameLower === 'liteviewer64.exe' ||
           nameLower === 'autorun.inf' ||
@@ -56,7 +61,7 @@ async function traverseFolders(folderId, currentPath) {
         const hasDcmExt = nameLower.endsWith('.dcm');
         const hasNoExt = !file.name.includes('.');
 
-        // Solo recolecte los archivos de imagen (.dcm o sin extensión que pesen > 100kb)
+        // Validación de archivos DICOM por extensión o peso
         if (hasDcmExt || (hasNoExt && sizeBytes > 100 * 1024)) {
           imageIds.push(file.id);
         }
@@ -67,51 +72,56 @@ async function traverseFolders(folderId, currentPath) {
       cachedDicomSeries[currentPath] = imageIds;
     }
   } catch (error) {
-    console.error(`Error procesando la carpeta ${currentPath}:`, error.message);
+    console.error(`Error procesando carpeta ${currentPath}:`, error.message);
   }
 }
 
-app.get('/api/dicom-list', async (req, res) => {
+/**
+ * Orquestador del escaneo de la biblioteca
+ */
+async function refreshDicomCache() {
+  if (isScanning) return;
+  
+  console.log("=== Iniciando sincronización con Google Drive ===");
+  isScanning = true;
+  const tempCache = {};
+  
   try {
-    if (!cachedDicomSeries) {
-      console.log("Mapeando estructura base en Google Drive...");
-      cachedDicomSeries = {};
-      const query = `"${TARGET_FOLDER_ID}" in parents and trashed=false`;
+    const resList = await drive.files.list({
+      q: `"${TARGET_FOLDER_ID}" in parents and trashed=false`,
+      fields: 'files(id, name, mimeType)',
+      pageSize: 100,
+    });
 
-      const resList = await drive.files.list({
-        q: query,
-        fields: 'files(id, name, mimeType)',
-        pageSize: 100,
-      });
-
-      const rootItems = resList.data.files || [];
-      for (const item of rootItems) {
-        if (item.mimeType === 'application/vnd.google-apps.folder') {
-          console.log(`Procesando volumen: ${item.name}`);
-          await traverseFolders(item.id, item.name);
-        }
-      }
-
-      // Ordenar alfabéticamente si es que encontró algo
-      if (Object.keys(cachedDicomSeries).length > 0) {
-        const sortedSeries = {};
-        Object.keys(cachedDicomSeries).sort().forEach(key => {
-          sortedSeries[key] = cachedDicomSeries[key];
-        });
-        cachedDicomSeries = sortedSeries;
-      } else {
-        // Si por alguna razón no extrajo nada, devolver un set de respaldo 
-        // para no dejar colgado al cliente eternamente
-        cachedDicomSeries = { "Error/Vacio": [] };
+    const rootItems = resList.data.files || [];
+    
+    // Ejecutamos el mapeo de cada volumen
+    for (const item of rootItems) {
+      if (item.mimeType === 'application/vnd.google-apps.folder') {
+        console.log(`Mapeando volumen: ${item.name}`);
+        cachedDicomSeries = cachedDicomSeries || {}; // Evita que la API devuelva null si alguien entra durante el proceso
+        await traverseFolders(item.id, item.name);
       }
     }
-    res.json(cachedDicomSeries);
+
+    console.log("=== Sincronización completada con éxito ===");
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch file list' });
+    console.error("Error crítico en la sincronización:", error.message);
+  } finally {
+    isScanning = false;
   }
+}
+
+// ENDPOINT: Obtener lista de estudios
+app.get('/api/dicom-list', async (req, res) => {
+  if (!cachedDicomSeries) {
+    // Si la cache está vacía (primer arranque), forzamos una espera o devolvemos estado de carga
+    await refreshDicomCache();
+  }
+  res.json(cachedDicomSeries || { "Cargando...": [] });
 });
 
+// ENDPOINT: Transmisión de archivo DICOM (Streaming)
 app.get('/api/view/:id', async (req, res) => {
   const fileId = req.params.id;
   try {
@@ -124,18 +134,21 @@ app.get('/api/view/:id', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
 
     driveRes.data
-      .on('end', () => { })
       .on('error', err => {
-        console.error('Error streaming file:', err.message);
+        console.error('Error en el stream del archivo:', err.message);
         if (!res.headersSent) res.status(500).end();
       })
       .pipe(res);
   } catch (error) {
-    console.error(`Error fetching file content ${fileId}:`, error.message);
+    console.error(`Error al obtener archivo ${fileId}:`, error.message);
     if (!res.headersSent) res.status(500).end();
   }
 });
 
+// Iniciar servidor y disparar el primer escaneo en segundo plano
 app.listen(PORT, HOST, () => {
-  console.log(`Nilmo DICOM viewer server is running on http://${HOST}:${PORT}`);
+  console.log(`Servidor Nilmo DICOM corriendo en http://${HOST}:${PORT}`);
+  
+  // Disparar sincronización inicial sin bloquear el arranque del servidor
+  refreshDicomCache().catch(console.error);
 });
