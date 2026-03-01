@@ -25,7 +25,6 @@
             position: absolute;
             top: 0;
             left: 0;
-            /* Cursor adjustments could be handled by cornerstone optionally, let's keep it visible */
         }
 
         #ui-overlay {
@@ -48,25 +47,21 @@
         }
     </style>
 
-    <!-- dicomParser -->
     <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
 
-    <!-- cornerstone-core -->
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
 
-    <!-- cornerstone-math -->
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-math@0.1.10/dist/cornerstoneMath.min.js"></script>
 
-    <!-- cornerstone-tools -->
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/cornerstone-tools@6.0.8/dist/cornerstoneTools.min.js"></script>
 
-    <!-- cornerstone-wado-image-loader -->
     <script
         src="https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoader.bundle.min.js"></script>
 </head>
 
 <body>
-    <!-- Fullscreen black background medical theme -->
     <div id="loading" class="loading">Sincronizando estudios de Nilmo con Google Drive...<br><span
             style="font-size:16px; color:#aaa; margin-top:10px; display:inline-block;">Por favor, espera unos
             segundos.</span></div>
@@ -95,6 +90,8 @@
         // Init cornerstone tools
         cornerstoneTools.external.cornerstone = cornerstone;
         cornerstoneTools.external.cornerstoneMath = cornerstoneMath;
+        cornerstoneTools.external.Hammer = Hammer; // Vinculación explícita de Hammer
+        
         cornerstoneTools.init({
             mouseEnabled: true,
             touchEnabled: true,
@@ -106,7 +103,6 @@
         cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
         cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
 
-        // Setup Web Workers with a dynamically created worker script to bypass CORS
         const workerScript = `
             importScripts('https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoaderWebWorker.min.js');
         `;
@@ -133,11 +129,10 @@
 
         let currentStackData = null;
         let allSeriesData = {};
-        let currentMode = 'StackScroll'; // Por defecto el 1er toque navega en celulares
+        let currentMode = 'StackScroll';
 
         function setMode(mode) {
             currentMode = mode;
-
             const btnStack = document.getElementById('btn-stack');
             const btnWwwc = document.getElementById('btn-wwwc');
             const btnZoom = document.getElementById('btn-zoom');
@@ -158,17 +153,11 @@
             }
 
             try {
-                // Siempre limpia los estados para evitar conflictos
                 cornerstoneTools.setToolPassive('StackScroll');
                 cornerstoneTools.setToolPassive('Wwwc');
                 cornerstoneTools.setToolPassive('Zoom');
-
-                // Vuelve a forzar los controles obligatorios de PC (Mouse)
-                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });  // Click izq SIEMPRE Brillo
-                cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });  // Click der SIEMPRE Zoom
-
-                // Fija el comportamiento secundario táctil dependendiendo del botón seleccionado
-                // En Cornerstone, isTouchActive = true permite asociar el 1er tap a una herramienta específica
+                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });
+                cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });
                 cornerstoneTools.setToolActive(mode, { isTouchActive: true });
             } catch (e) {
                 console.error("Error cambiando modo táctil:", e);
@@ -182,23 +171,17 @@
             document.getElementById('loading').style.display = 'block';
             document.getElementById('loading').innerHTML = `Cargando <b>${seriesName}</b>...`;
 
-            // Reset cornerstone state for the element safely
             let dicomContainer = document.getElementById('dicomImage');
             try {
                 cornerstone.disable(dicomContainer);
-
-                // When overriding cornerstone, we need a fresh element to prevent internal state corruption
                 const newDicomImage = document.createElement('div');
                 newDicomImage.id = 'dicomImage';
                 newDicomImage.oncontextmenu = function () { return false; };
-
-                // Copy styles/properties
                 newDicomImage.style.width = '100%';
                 newDicomImage.style.height = '100%';
                 newDicomImage.style.position = 'absolute';
                 newDicomImage.style.top = '0';
                 newDicomImage.style.left = '0';
-
                 dicomContainer.parentNode.replaceChild(newDicomImage, dicomContainer);
                 dicomContainer = newDicomImage;
             } catch (e) {
@@ -220,28 +203,18 @@
                 cornerstoneTools.addStackStateManager(dicomContainer, ['stack']);
                 cornerstoneTools.addToolState(dicomContainer, 'stack', currentStackData);
 
-                const WwwcTool = cornerstoneTools.WwwcTool;
-                const ZoomTool = cornerstoneTools.ZoomTool;
-                const StackScrollMouseWheelTool = cornerstoneTools.StackScrollMouseWheelTool;
-                const StackScrollTool = cornerstoneTools.StackScrollTool;
-                const ZoomTouchPinchTool = cornerstoneTools.ZoomTouchPinchTool;
-                const PanMultiTouchTool = cornerstoneTools.PanMultiTouchTool;
+                cornerstoneTools.addTool(cornerstoneTools.WwwcTool);
+                cornerstoneTools.addTool(cornerstoneTools.ZoomTool);
+                cornerstoneTools.addTool(cornerstoneTools.StackScrollMouseWheelTool);
+                cornerstoneTools.addTool(cornerstoneTools.StackScrollTool);
+                cornerstoneTools.addTool(cornerstoneTools.ZoomTouchPinchTool);
+                cornerstoneTools.addTool(cornerstoneTools.PanMultiTouchTool);
 
-                cornerstoneTools.addTool(WwwcTool);
-                cornerstoneTools.addTool(ZoomTool);
-                cornerstoneTools.addTool(StackScrollMouseWheelTool);
-                cornerstoneTools.addTool(StackScrollTool);
-                cornerstoneTools.addTool(ZoomTouchPinchTool);
-                cornerstoneTools.addTool(PanMultiTouchTool);
-
-                // Activar multi-táctil permanentemente (Zoom con pellizco y Pan con 2 dedos)
                 cornerstoneTools.setToolActive('ZoomTouchPinch', {});
                 cornerstoneTools.setToolActive('PanMultiTouch', {});
                 cornerstoneTools.setToolActive('StackScrollMouseWheel', {});
 
-                // Sincronizar el botón iluminado con la herramienta izquierda/táctil real
                 setMode(currentMode);
-
                 updateImageInfo(1, imageIds.length);
 
                 dicomContainer.addEventListener('cornerstoneimagerendered', function () {
@@ -266,7 +239,7 @@
             })
             .then(data => {
                 if (!data || Object.keys(data).length === 0 || data["Error/Vacio"]) {
-                    document.getElementById('loading').innerHTML = 'No se encontraron imágenes DICOM válidas. (O la nube está procesando los archivos).';
+                    document.getElementById('loading').innerHTML = 'No se encontraron imágenes DICOM válidas.';
                     return;
                 }
 
@@ -288,7 +261,6 @@
                     loadSeries(e.target.value);
                 });
 
-                // Cargar la primera serie por defecto
                 const firstSeries = Object.keys(allSeriesData)[0];
                 if (firstSeries) {
                     loadSeries(firstSeries);
@@ -296,14 +268,14 @@
             })
             .catch(err => {
                 console.error('Error fetching /api/dicom-list:', err);
-                document.getElementById('loading').innerHTML = '<span style="color:#ff4444">Error de conexión con el Servidor / API.</span><br><span style="font-size:14px;color:#aaa">Revisa los logs en Railway para ver si la API de Google Drive alcanzó el límite, o recarga la página.</span>';
+                document.getElementById('loading').innerHTML = '<span style="color:#ff4444">Error de conexión con el Servidor / API.</span>';
             });
 
         function updateImageInfo(current, total) {
-            document.getElementById('image-info').innerText = 'Imagen: ' + current + ' / ' + total;
+            const info = document.getElementById('image-info');
+            if(info) info.innerText = 'Imagen: ' + current + ' / ' + total;
         }
 
-        // Handle window resize dynamically
         window.addEventListener('resize', function () {
             cornerstone.resize(element);
         });
