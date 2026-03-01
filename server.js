@@ -92,12 +92,18 @@ app.get('/api/dicom-list', async (req, res) => {
         }
       }
 
-      // Ordenar alfabéticamente
-      const sortedSeries = {};
-      Object.keys(cachedDicomSeries).sort().forEach(key => {
-        sortedSeries[key] = cachedDicomSeries[key];
-      });
-      cachedDicomSeries = sortedSeries;
+      // Ordenar alfabéticamente si es que encontró algo
+      if (Object.keys(cachedDicomSeries).length > 0) {
+        const sortedSeries = {};
+        Object.keys(cachedDicomSeries).sort().forEach(key => {
+          sortedSeries[key] = cachedDicomSeries[key];
+        });
+        cachedDicomSeries = sortedSeries;
+      } else {
+        // Si por alguna razón no extrajo nada, devolver un set de respaldo 
+        // para no dejar colgado al cliente eternamente
+        cachedDicomSeries = { "Error/Vacio": [] };
+      }
     }
     res.json(cachedDicomSeries);
   } catch (error) {

@@ -260,10 +260,13 @@
         }
 
         fetch('/api/dicom-list')
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error("Fallo en la comunicación con el servidor");
+                return res.json();
+            })
             .then(data => {
-                if (!data || Object.keys(data).length === 0) {
-                    document.getElementById('loading').innerHTML = 'No se encontraron imágenes DICOM en la carpeta especificada.';
+                if (!data || Object.keys(data).length === 0 || data["Error/Vacio"]) {
+                    document.getElementById('loading').innerHTML = 'No se encontraron imágenes DICOM válidas. (O la nube está procesando los archivos).';
                     return;
                 }
 
@@ -293,7 +296,7 @@
             })
             .catch(err => {
                 console.error('Error fetching /api/dicom-list:', err);
-                document.getElementById('loading').innerText = 'Error de conexión con el servidor (/api/dicom-list).';
+                document.getElementById('loading').innerHTML = '<span style="color:#ff4444">Error de conexión con el Servidor / API.</span><br><span style="font-size:14px;color:#aaa">Revisa los logs en Railway para ver si la API de Google Drive alcanzó el límite, o recarga la página.</span>';
             });
 
         function updateImageInfo(current, total) {
