@@ -158,19 +158,21 @@
             }
 
             try {
-                // Desactivar herramientas de input primario
+                // Siempre limpia los estados para evitar conflictos
                 cornerstoneTools.setToolPassive('StackScroll');
                 cornerstoneTools.setToolPassive('Wwwc');
                 cornerstoneTools.setToolPassive('Zoom');
 
-                // Activar para toque 1 dedo o click izq
-                cornerstoneTools.setToolActive(mode, { mouseButtonMask: 1 });
+                // Vuelve a forzar los controles obligatorios de PC (Mouse)
+                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });  // Click izq SIEMPRE Brillo
+                cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });  // Click der SIEMPRE Zoom
 
-                // Mantener zoom derecho para desktop
-                if (mode !== 'Zoom') {
-                    cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });
-                }
-            } catch (e) { }
+                // Fija el comportamiento secundario táctil dependendiendo del botón seleccionado
+                // En Cornerstone, isTouchActive = true permite asociar el 1er tap a una herramienta específica
+                cornerstoneTools.setToolActive(mode, { isTouchActive: true });
+            } catch (e) {
+                console.error("Error cambiando modo táctil:", e);
+            }
         }
 
         function loadSeries(seriesName) {
