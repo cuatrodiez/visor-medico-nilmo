@@ -1,7 +1,7 @@
 {
   "name": "nilmo-dicom-viewer",
   "version": "1.0.0",
-  "description": "Visor DICOM profesional web",
+  "description": "Visor DICOM profesional de Nilmo",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
